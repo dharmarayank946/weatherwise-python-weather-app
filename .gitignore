@@ -1,0 +1,17 @@
+# Python compilation artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environment variables & API credentials
+.env
+config.json
+
+# Local runtime data & exports
+data/
+*.log
+*.tmp
+
+# Editor artifacts
+.vscode/
+.idea/
