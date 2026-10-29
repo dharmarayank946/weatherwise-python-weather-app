@@ -70,13 +70,14 @@ class WeatherService:
             country = city_info.get("country", "")
             admin1 = city_info.get("admin1", "")
 
-            # Step 2: Fetch current weather and daily forecast
+            # Step 2: Fetch current weather, 7-day daily forecast, and 24-hour hourly forecast
             weather_url = "https://api.open-meteo.com/v1/forecast"
             weather_params = {
                 "latitude": lat,
                 "longitude": lon,
                 "current": "temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,surface_pressure",
-                "daily": "sunrise,sunset,temperature_2m_max,temperature_2m_min",
+                "daily": "sunrise,sunset,temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum,wind_speed_10m_max",
+                "hourly": "temperature_2m,relative_humidity_2m,weather_code,precipitation_probability",
                 "timezone": "auto",
             }
 
@@ -91,6 +92,7 @@ class WeatherService:
             weather_data = weather_response.json()
             current = weather_data.get("current", {})
             daily = weather_data.get("daily", {})
+            hourly = weather_data.get("hourly", {})
 
             # Map WMO weather code to human description and visual category
             code = current.get("weather_code", 0)
@@ -109,6 +111,80 @@ class WeatherService:
 
             temp_max = daily.get("temperature_2m_max", [temp_c])[0]
             temp_min = daily.get("temperature_2m_min", [temp_c])[0]
+
+            # Parse 7-day daily forecast
+            daily_forecast = []
+            d_times = daily.get("time", [])
+            d_codes = daily.get("weather_code", [])
+            d_maxes = daily.get("temperature_2m_max", [])
+            d_mins = daily.get("temperature_2m_min", [])
+            d_precips = daily.get("precipitation_sum", [])
+            d_winds = daily.get("wind_speed_10m_max", [])
+
+            from datetime import datetime as dt_parser
+            for i in range(len(d_times)):
+                d_date = d_times[i]
+                try:
+                    parsed_d = dt_parser.fromisoformat(d_date)
+                    day_name = "Today" if i == 0 else parsed_d.strftime("%a")
+                    formatted_date = parsed_d.strftime("%b %d")
+                except Exception:
+                    day_name = f"Day {i+1}"
+                    formatted_date = d_date
+
+                w_code = d_codes[i] if i < len(d_codes) else code
+                c_desc, c_icon = self._decode_wmo_code(w_code)
+                daily_forecast.append({
+                    "date": d_date,
+                    "day_name": day_name,
+                    "formatted_date": formatted_date,
+                    "temp_max_c": round(d_maxes[i], 1) if i < len(d_maxes) else round(temp_c, 1),
+                    "temp_min_c": round(d_mins[i], 1) if i < len(d_mins) else round(temp_c, 1),
+                    "weather_code": w_code,
+                    "condition": c_desc,
+                    "icon_type": c_icon,
+                    "precipitation_mm": round(d_precips[i], 1) if (i < len(d_precips) and d_precips[i] is not None) else 0.0,
+                    "wind_max_kmh": round(d_winds[i], 1) if (i < len(d_winds) and d_winds[i] is not None) else 0.0,
+                })
+
+            # Parse 24-hour hourly forecast starting from current hour
+            hourly_forecast = []
+            h_times = hourly.get("time", [])
+            h_temps = hourly.get("temperature_2m", [])
+            h_codes = hourly.get("weather_code", [])
+            h_precips = hourly.get("precipitation_probability", [])
+
+            curr_time_str = current.get("time", "")
+            start_idx = 0
+            for idx, t_str in enumerate(h_times):
+                if t_str >= curr_time_str:
+                    start_idx = idx
+                    break
+
+            for i in range(start_idx, min(start_idx + 24, len(h_times))):
+                raw_t = h_times[i]
+                disp_time = raw_t[11:16] if len(raw_t) >= 16 else raw_t
+                try:
+                    hour_int = int(disp_time.split(":")[0])
+                    am_pm = "AM" if hour_int < 12 else "PM"
+                    hour_12 = hour_int % 12
+                    if hour_12 == 0:
+                        hour_12 = 12
+                    disp_time = f"{hour_12} {am_pm}"
+                except Exception:
+                    pass
+
+                w_code = h_codes[i] if i < len(h_codes) else code
+                c_desc, c_icon = self._decode_wmo_code(w_code)
+                hourly_forecast.append({
+                    "time": raw_t,
+                    "display_time": disp_time,
+                    "temp_c": round(h_temps[i], 1) if i < len(h_temps) else round(temp_c, 1),
+                    "weather_code": w_code,
+                    "condition": c_desc,
+                    "icon_type": c_icon,
+                    "precip_probability": h_precips[i] if (i < len(h_precips) and h_precips[i] is not None) else 0,
+                })
 
             return {
                 "success": True,
@@ -131,6 +207,8 @@ class WeatherService:
                 "sunrise": sunrise,
                 "sunset": sunset,
                 "timestamp": current.get("time", ""),
+                "daily_forecast": daily_forecast,
+                "hourly_forecast": hourly_forecast,
             }
 
         except requests.exceptions.Timeout:
@@ -203,6 +281,8 @@ class WeatherService:
                 "sunrise": str(sys.get("sunrise", "N/A")),
                 "sunset": str(sys.get("sunset", "N/A")),
                 "timestamp": str(data.get("dt", "")),
+                "daily_forecast": [],
+                "hourly_forecast": [],
             }
 
         except requests.exceptions.RequestException as exc:

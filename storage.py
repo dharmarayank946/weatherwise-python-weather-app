@@ -22,6 +22,7 @@ class StorageEngine:
         self.favorites_json_path = os.path.join(self.data_dir, "favorites.json")
         self.cache_json_path = os.path.join(self.data_dir, "weather_cache.json")
         self.latest_report_txt_path = os.path.join(self.data_dir, "weather_report.txt")
+        self.settings_json_path = os.path.join(self.data_dir, "settings.json")
 
     # =========================================================
     # TXT File Handling
@@ -258,3 +259,80 @@ Sunset Time   : {weather.get('sunset', 'N/A')}
         except (json.JSONDecodeError, OSError):
             return None
         return None
+
+    # =========================================================
+    # Settings & Stats Persistence
+    # =========================================================
+    def get_settings(self) -> dict:
+        """Retrieve user configuration preferences from settings.json."""
+        default_settings = {
+            "unit": "C",
+            "default_city": "Bengaluru",
+            "theme": "Deep Twilight",
+            "refresh_interval_min": 15,
+            "auto_refresh": True,
+        }
+
+        if not os.path.exists(self.settings_json_path):
+            return default_settings
+
+        try:
+            with open(self.settings_json_path, "r", encoding="utf-8") as file:
+                data = json.load(file)
+                if isinstance(data, dict):
+                    # Merge with defaults for any missing keys
+                    default_settings.update(data)
+                    return default_settings
+        except (json.JSONDecodeError, OSError) as error:
+            print(f"[Warning] Could not load settings JSON ({error}). Using defaults.")
+
+        return default_settings
+
+    def save_settings(self, settings: dict) -> bool:
+        """Persist user configuration preferences to settings.json."""
+        current = self.get_settings()
+        current.update(settings)
+        try:
+            with open(self.settings_json_path, "w", encoding="utf-8") as file:
+                json.dump(current, file, indent=4)
+            return True
+        except OSError as error:
+            print(f"Error saving settings JSON: {error}")
+            return False
+
+    def clear_search_history(self) -> bool:
+        """Clear all search history entries in search_history.csv."""
+        headers = [
+            "Timestamp", "City", "Country", "Temperature_C",
+            "Temperature_F", "Humidity", "Wind_Speed_KMH", "Condition"
+        ]
+        try:
+            with open(self.history_csv_path, "w", newline="", encoding="utf-8") as file:
+                writer = csv.writer(file)
+                writer.writerow(headers)
+            return True
+        except OSError as error:
+            print(f"Error clearing search history CSV: {error}")
+            return False
+
+    def get_stats(self) -> dict:
+        """Compute quick summary statistics of stored data."""
+        favs = self.get_favorites()
+        history = self.get_search_history_csv(limit=1000)
+        cache_count = 0
+        if os.path.exists(self.cache_json_path):
+            try:
+                with open(self.cache_json_path, "r", encoding="utf-8") as file:
+                    data = json.load(file)
+                    if isinstance(data, dict):
+                        cache_count = len(data)
+            except Exception:
+                cache_count = 0
+
+        return {
+            "favorites_count": len(favs),
+            "history_count": len(history),
+            "cache_count": cache_count,
+            "has_report": os.path.exists(self.latest_report_txt_path),
+        }
+

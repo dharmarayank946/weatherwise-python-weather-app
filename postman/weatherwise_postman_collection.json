@@ -1,0 +1,124 @@
+{
+  "info": {
+    "_postman_id": "weatherwise-api-v3",
+    "name": "WeatherWise API",
+    "description": "Postman Collection for WeatherWise Atmospheric Intelligence FastAPI microservice deployed on Render.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:8000",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health Check",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": ["{{baseUrl}}"],
+          "path": ["health"]
+        },
+        "description": "Liveness probe for Render deployment."
+      }
+    },
+    {
+      "name": "Get Current Weather",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/weather/current?city=Bangalore",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "weather", "current"],
+          "query": [
+            { "key": "city", "value": "Bangalore" }
+          ]
+        },
+        "description": "Fetch real-time atmospheric observations."
+      }
+    },
+    {
+      "name": "Get 7-Day & 24-Hour Forecast",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/weather/forecast?city=Bangalore",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "weather", "forecast"],
+          "query": [
+            { "key": "city", "value": "Bangalore" }
+          ]
+        },
+        "description": "Fetch 7-day daily and 24-hour hourly meteorological trajectory."
+      }
+    },
+    {
+      "name": "Compare Cities",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/weather/compare?city1=London&city2=Paris",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "weather", "compare"],
+          "query": [
+            { "key": "city1", "value": "London" },
+            { "key": "city2", "value": "Paris" }
+          ]
+        },
+        "description": "Side-by-side comparison with temperature delta."
+      }
+    },
+    {
+      "name": "Get Air Quality (AQI)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/weather/air-quality?city=London",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "weather", "air-quality"],
+          "query": [
+            { "key": "city", "value": "London" }
+          ]
+        },
+        "description": "Retrieve European AQI and major pollutant levels."
+      }
+    },
+    {
+      "name": "List Bookmarked Favorites",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/weather/favorites",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "weather", "favorites"]
+        },
+        "description": "Retrieve saved favorite cities."
+      }
+    },
+    {
+      "name": "Download Plain-Text Report",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/api/v1/weather/report/txt?city=Bangalore",
+          "host": ["{{baseUrl}}"],
+          "path": ["api", "v1", "weather", "report", "txt"],
+          "query": [
+            { "key": "city", "value": "Bangalore" }
+          ]
+        },
+        "description": "Download formatted intelligence report as plain text file."
+      }
+    }
+  ]
+}

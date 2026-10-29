@@ -187,10 +187,56 @@ class TestWeatherService(unittest.TestCase):
         self.assertIn("temperature_c", result)
         self.assertIn("humidity", result)
         self.assertIn("condition", result)
+        self.assertIn("daily_forecast", result)
+        self.assertIn("hourly_forecast", result)
+        self.assertTrue(len(result["daily_forecast"]) > 0)
+        self.assertTrue(len(result["hourly_forecast"]) > 0)
+
+
+class TestStorageEngineExtended(unittest.TestCase):
+    """Test extended storage capabilities including settings and diagnostics."""
+
+    def setUp(self):
+        self.test_dir = tempfile.mkdtemp()
+        self.storage = StorageEngine(data_directory=self.test_dir)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.test_dir, ignore_errors=True)
+
+    def test_settings_persistence(self):
+        # Default settings
+        defaults = self.storage.get_settings()
+        self.assertEqual(defaults["unit"], "C")
+        self.assertIn(defaults["theme"], ["Deep Twilight", "Sky Blue"])
+
+        # Save updated settings
+        saved = self.storage.save_settings({"unit": "F", "theme": "Soft Lavender", "default_city": "Aland"})
+        self.assertTrue(saved)
+
+        reloaded = self.storage.get_settings()
+        self.assertEqual(reloaded["unit"], "F")
+        self.assertEqual(reloaded["theme"], "Soft Lavender")
+        self.assertEqual(reloaded["default_city"], "Aland")
+
+    def test_clear_search_history(self):
+        sample = {"city": "Paris", "country": "France", "temperature_c": 18.0}
+        self.storage.log_search_to_csv(sample)
+        self.assertEqual(len(self.storage.get_search_history_csv()), 1)
+
+        cleared = self.storage.clear_search_history()
+        self.assertTrue(cleared)
+        self.assertEqual(len(self.storage.get_search_history_csv()), 0)
+
+    def test_storage_stats(self):
+        stats = self.storage.get_stats()
+        self.assertIn("favorites_count", stats)
+        self.assertIn("history_count", stats)
+        self.assertIn("cache_count", stats)
 
 
 class TestGUI(unittest.TestCase):
-    """Test Tkinter GUI instantiation and initialization."""
+    """Test Tkinter GUI instantiation and multi-page navigation."""
 
     def test_gui_initialization(self):
         try:
@@ -200,13 +246,49 @@ class TestGUI(unittest.TestCase):
             root.withdraw()
             app = WeatherWiseGUI(root)
             self.assertIsNotNone(app)
-            self.assertEqual(app.current_unit, "C")
+            self.assertIn(app.current_unit, ["C", "F"])
             root.destroy()
         except tk.TclError:
-            # Display server not available in headless environment
+            pass
+
+    def test_gui_multi_page_navigation(self):
+        try:
+            import tkinter as tk
+            from gui import WeatherWiseGUI
+            root = tk.Tk()
+            root.withdraw()
+            app = WeatherWiseGUI(root)
+
+            # Test each page method directly
+            app.show_dashboard_page()
+            self.assertEqual(app.current_page, "dashboard")
+
+            app.show_forecast_page()
+            self.assertEqual(app.current_page, "forecast")
+
+            app.show_explore_page()
+            self.assertEqual(app.current_page, "explore")
+
+            app.show_favorites_page()
+            self.assertEqual(app.current_page, "favorites")
+
+            app.show_history_page()
+            self.assertEqual(app.current_page, "history")
+
+            app.show_settings_page()
+            self.assertEqual(app.current_page, "settings")
+
+            # Test unit toggle
+            init_unit = app.current_unit
+            app.toggle_temperature_unit()
+            self.assertNotEqual(app.current_unit, init_unit)
+
+            root.destroy()
+        except tk.TclError:
             pass
 
 
 if __name__ == "__main__":
     unittest.main()
+
 
