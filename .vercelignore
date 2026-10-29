@@ -1,0 +1,6 @@
+# Ignore Python backend & desktop files for Vercel web build
+backend/
+tests/
+reports/
+data/
+*.py
