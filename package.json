@@ -1,0 +1,11 @@
+{
+  "name": "weatherwise-root",
+  "private": true,
+  "version": "3.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
+    "preview": "npm --prefix frontend run preview"
+  }
+}
