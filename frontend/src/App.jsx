@@ -64,13 +64,43 @@ export default function App() {
 
     // 2. Direct Open-Meteo API fallback (Zero API keys, 100% free & open)
     try {
-      const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(targetCity)}&count=1&language=en&format=json`);
+      const KNOWN_ALIASES = {
+        calcutta: 'Kolkata',
+        bombay: 'Mumbai',
+        madras: 'Chennai',
+        bangalore: 'Bengaluru',
+      };
+      let clean = targetCity.trim().replace(/^['"]+|['"]+$/g, '');
+      const cleanLower = clean.toLowerCase();
+      if (KNOWN_ALIASES[cleanLower]) {
+        clean = KNOWN_ALIASES[cleanLower];
+      }
+      const parts = clean.split(',').map(p => p.trim()).filter(Boolean);
+      const primaryName = parts[0];
+      const qualifiers = parts.slice(1).map(p => p.toLowerCase());
+
+      const geoRes = await fetch(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(primaryName)}&count=10&language=en&format=json`);
       const geoData = await geoRes.json();
       if (!geoData.results || geoData.results.length === 0) {
         throw new Error(`City "${targetCity}" not found. Please verify the name.`);
       }
 
-      const { name, country, latitude, longitude } = geoData.results[0];
+      // Rank results: exact match on primaryName first, qualifiers next
+      const rankedResults = [...geoData.results].sort((a, b) => {
+        let scoreA = 0;
+        let scoreB = 0;
+        if (a.name.toLowerCase() === primaryName.toLowerCase()) scoreA += 100;
+        if (b.name.toLowerCase() === primaryName.toLowerCase()) scoreB += 100;
+        const textA = `${a.name} ${a.admin1 || ''} ${a.country || ''}`.toLowerCase();
+        const textB = `${b.name} ${b.admin1 || ''} ${b.country || ''}`.toLowerCase();
+        for (const q of qualifiers) {
+          if (textA.includes(q)) scoreA += 80;
+          if (textB.includes(q)) scoreB += 80;
+        }
+        return scoreB - scoreA;
+      });
+
+      const { name, country, latitude, longitude } = rankedResults[0];
 
       const weatherRes = await fetch(
         `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}` +

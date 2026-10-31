@@ -63,18 +63,43 @@ def health_check():
     }
 
 
-@app.get("/api/v1/weather/current", tags=["Weather"])
-def get_current_weather(city: str = Query("London", description="Target city name")):
-    """Fetch live atmospheric conditions for a target city."""
-    clean_city = city.strip()
-    if not clean_city:
-        raise HTTPException(status_code=400, detail="City name cannot be empty.")
+@app.get("/api/v1/weather/search", tags=["Weather"])
+def search_locations(
+    query: str = Query(..., description="City or location search query"),
+    count: int = Query(10, description="Max candidate locations to return")
+):
+    """Global geocoding endpoint returning multiple location matches with region and country."""
+    results = service.search_locations(query, count=count)
+    return {"query": query, "count": len(results), "results": results}
 
-    data = service.get_weather(clean_city)
+
+@app.get("/api/v1/weather/current", tags=["Weather"])
+def get_current_weather(
+    city: Optional[str] = Query(None, description="Target city name"),
+    lat: Optional[float] = Query(None, description="Latitude coordinate"),
+    lon: Optional[float] = Query(None, description="Longitude coordinate"),
+    region: Optional[str] = Query("", description="Optional region name"),
+    country: Optional[str] = Query("", description="Optional country name")
+):
+    """Fetch live atmospheric conditions for a target city or coordinate pair."""
+    if lat is not None and lon is not None:
+        data = service.get_weather_by_coords(
+            lat=lat,
+            lon=lon,
+            city_name=city or "Selected Location",
+            country=country or "",
+            region=region or ""
+        )
+    else:
+        target_city = (city or "London").strip()
+        if not target_city:
+            raise HTTPException(status_code=400, detail="City name cannot be empty.")
+        data = service.get_weather(target_city)
+
     if not data.get("success"):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=data.get("error", f"Could not retrieve weather for '{clean_city}'.")
+            detail=data.get("error", f"Could not retrieve weather for specified location.")
         )
 
     # Log to history in storage engine

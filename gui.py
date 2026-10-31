@@ -515,6 +515,25 @@ class WeatherWiseGUI:
         thread = threading.Thread(target=worker, daemon=True)
         thread.start()
 
+    def search_location_coords_threaded(self, lat: float, lon: float, name: str, country: str = "", region: str = "", on_complete=None):
+        """Fetch weather by exact coordinates in a background thread."""
+        if self.is_loading:
+            return
+
+        self.is_loading = True
+        self.status_badge.configure(
+            text="⏳ Fetching...",
+            bg=self.colors["secondary"],
+            fg=self.colors["primary"]
+        )
+
+        def worker():
+            result = self.service.get_weather_by_coords(lat, lon, city_name=name, country=country, region=region)
+            self.root.after(0, lambda: self._on_weather_fetched(result, on_complete))
+
+        thread = threading.Thread(target=worker, daemon=True)
+        thread.start()
+
     def _on_weather_fetched(self, result: dict, on_complete=None):
         """Handle completed weather request in main thread."""
         self.is_loading = False
@@ -573,6 +592,99 @@ class WeatherWiseGUI:
 
         # Re-render current page
         getattr(self, f"show_{self.current_page}_page", self.show_dashboard_page)()
+
+    def open_location_picker_modal(self):
+        """Open modal dialog allowing the user to select from multiple location matches."""
+        if not self.current_weather or not self.current_weather.get("matches"):
+            return
+
+        matches = self.current_weather["matches"]
+        modal = tk.Toplevel(self.root)
+        modal.title("Select Matching Location")
+        modal.geometry("540x440")
+        modal.configure(bg=self.colors["bg"])
+        modal.transient(self.root)
+        modal.grab_set()
+
+        # Header
+        header = tk.Frame(modal, bg=self.colors["primary"], padx=18, pady=14)
+        header.pack(fill=tk.X)
+        tk.Label(
+            header,
+            text="Multiple Locations Found",
+            font=("Segoe UI", 13, "bold"),
+            fg="#FFFFFF",
+            bg=self.colors["primary"]
+        ).pack(anchor="w")
+        tk.Label(
+            header,
+            text="Please select the specific geographic location you want to view:",
+            font=("Segoe UI", 9),
+            fg="#E0E7FF",
+            bg=self.colors["primary"]
+        ).pack(anchor="w", pady=(2, 0))
+
+        # Scrollable list of candidates
+        list_frame = tk.Frame(modal, bg=self.colors["bg"], padx=16, pady=12)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+
+        for match in matches:
+            card = tk.Frame(
+                list_frame,
+                bg=self.colors["card_bg"],
+                highlightbackground=self.colors["border"],
+                highlightthickness=1,
+                padx=12,
+                pady=10
+            )
+            card.pack(fill=tk.X, pady=4)
+
+            info_box = tk.Frame(card, bg=self.colors["card_bg"])
+            info_box.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+            tk.Label(
+                info_box,
+                text=match.get("display_name", match.get("name")),
+                font=("Segoe UI", 10, "bold"),
+                fg=self.colors["text_main"],
+                bg=self.colors["card_bg"]
+            ).pack(anchor="w")
+
+            coords_txt = f"Lat: {match.get('latitude', 0.0):.3f}, Lon: {match.get('longitude', 0.0):.3f}"
+            if match.get("elevation"):
+                coords_txt += f" • Elevation: {match['elevation']}m"
+            tk.Label(
+                info_box,
+                text=coords_txt,
+                font=("Segoe UI", 8),
+                fg=self.colors["text_muted"],
+                bg=self.colors["card_bg"]
+            ).pack(anchor="w", pady=(2, 0))
+
+            def _make_select_cmd(m=match):
+                def _cmd():
+                    modal.destroy()
+                    self.search_location_coords_threaded(
+                        lat=m["latitude"],
+                        lon=m["longitude"],
+                        name=m["name"],
+                        country=m.get("country", ""),
+                        region=m.get("admin1", "")
+                    )
+                return _cmd
+
+            tk.Button(
+                card,
+                text="Select",
+                font=("Segoe UI", 9, "bold"),
+                bg=self.colors["primary"],
+                fg="#FFFFFF",
+                relief=tk.FLAT,
+                padx=12,
+                pady=4,
+                cursor="hand2",
+                command=_make_select_cmd(match)
+            ).pack(side=tk.RIGHT, padx=4)
 
     def _format_temp(self, celsius: float) -> str:
         """Format temperature float according to active unit."""
@@ -665,6 +777,24 @@ class WeatherWiseGUI:
                 pady=2
             )
             reg_badge.pack(side=tk.LEFT, padx=(10, 0))
+
+        # Multi-location switcher if multiple matches found
+        matches = w.get("matches", [])
+        if len(matches) > 1:
+            multi_btn = tk.Button(
+                h_top,
+                text=f"🌐 {len(matches)} Locations",
+                font=("Segoe UI", 9, "bold"),
+                bg="#EFF6FF",
+                fg="#2563EB",
+                activebackground="#DBEAFE",
+                relief=tk.FLAT,
+                padx=8,
+                pady=2,
+                cursor="hand2",
+                command=self.open_location_picker_modal
+            )
+            multi_btn.pack(side=tk.LEFT, padx=(8, 0))
 
         # Action Buttons on Hero
         btn_box = tk.Frame(h_top, bg=self.colors["card_bg"])

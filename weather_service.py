@@ -8,10 +8,18 @@ Includes robust error handling for timeouts, invalid cities, and network issues.
 """
 
 import os
+import time
 import requests
 
 # Default timeout in seconds for API requests
 REQUEST_TIMEOUT = 12
+
+KNOWN_ALIASES = {
+    "calcutta": "Kolkata",
+    "bombay": "Mumbai",
+    "madras": "Chennai",
+    "bangalore": "Bengaluru",
+}
 
 
 class WeatherService:
@@ -20,6 +28,82 @@ class WeatherService:
     def __init__(self, openweather_api_key: str = None):
         # Allow passing key directly or reading from environment
         self.openweather_api_key = openweather_api_key or os.environ.get("OPENWEATHER_API_KEY", "").strip()
+
+    def search_locations(self, query: str, count: int = 10) -> list:
+        """Search global locations using Open-Meteo Geocoding API with smart ranking and qualifiers."""
+        clean = query.strip().strip("'\"")
+        if not clean:
+            return []
+
+        # Check common city aliases
+        clean_lower = clean.lower()
+        if clean_lower in KNOWN_ALIASES:
+            clean = KNOWN_ALIASES[clean_lower]
+
+        parts = [p.strip() for p in clean.split(",") if p.strip()]
+        primary_name = parts[0]
+        qualifiers = [p.lower() for p in parts[1:]]
+
+        geo_url = "https://geocoding-api.open-meteo.com/v1/search"
+        geo_params = {"name": primary_name, "count": max(count, 10), "language": "en", "format": "json"}
+
+        try:
+            resp = None
+            for attempt in range(3):
+                resp = requests.get(geo_url, params=geo_params, timeout=REQUEST_TIMEOUT)
+                if resp.status_code == 200:
+                    break
+                if resp.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+                    time.sleep(0.4 * (attempt + 1))
+                    continue
+
+            if not resp or resp.status_code != 200:
+                return []
+            data = resp.json()
+            results = data.get("results", [])
+            if not results:
+                return []
+
+            formatted = []
+            for r in results:
+                item = {
+                    "id": r.get("id"),
+                    "name": r.get("name"),
+                    "latitude": r.get("latitude"),
+                    "longitude": r.get("longitude"),
+                    "country": r.get("country", ""),
+                    "country_code": r.get("country_code", ""),
+                    "admin1": r.get("admin1", ""),
+                    "timezone": r.get("timezone", ""),
+                    "elevation": r.get("elevation", 0),
+                }
+                display_parts = [item["name"]]
+                if item["admin1"]:
+                    display_parts.append(item["admin1"])
+                if item["country"]:
+                    display_parts.append(item["country"])
+                item["display_name"] = ", ".join(display_parts)
+                formatted.append(item)
+
+            # Ranking: exact match on primary name first, qualifier matches next
+            def rank_score(item):
+                score = 0
+                name_lower = item["name"].lower()
+                if name_lower == primary_name.lower():
+                    score += 100
+                elif name_lower.startswith(primary_name.lower()):
+                    score += 50
+
+                item_text = (item["name"] + " " + item["admin1"] + " " + item["country"]).lower()
+                for q in qualifiers:
+                    if q in item_text:
+                        score += 80
+                return score
+
+            formatted.sort(key=rank_score, reverse=True)
+            return formatted[:count]
+        except Exception:
+            return []
 
     def get_weather(self, city_name: str) -> dict:
         """Fetch weather data for a given city name.
@@ -40,37 +124,17 @@ class WeatherService:
 
         return self._fetch_open_meteo(clean_city)
 
-    def _fetch_open_meteo(self, city_name: str) -> dict:
-        """Fetch live weather data from Open-Meteo (No API key required)."""
+    def get_weather_by_coords(
+        self,
+        lat: float,
+        lon: float,
+        city_name: str = "",
+        country: str = "",
+        region: str = "",
+        candidates: list = None
+    ) -> dict:
+        """Fetch live meteorological forecast for specific geographic coordinates."""
         try:
-            # Step 1: Geocoding lookup to resolve city name to latitude/longitude
-            geo_url = "https://geocoding-api.open-meteo.com/v1/search"
-            geo_params = {"name": city_name, "count": 1, "language": "en", "format": "json"}
-            
-            geo_response = requests.get(geo_url, params=geo_params, timeout=REQUEST_TIMEOUT)
-            
-            if geo_response.status_code != 200:
-                return {
-                    "success": False,
-                    "error": f"Geocoding service returned status code {geo_response.status_code}."
-                }
-
-            geo_data = geo_response.json()
-            results = geo_data.get("results")
-            if not results:
-                return {
-                    "success": False,
-                    "error": f"City '{city_name}' not found. Please verify the spelling."
-                }
-
-            city_info = results[0]
-            lat = city_info["latitude"]
-            lon = city_info["longitude"]
-            resolved_city = city_info.get("name", city_name)
-            country = city_info.get("country", "")
-            admin1 = city_info.get("admin1", "")
-
-            # Step 2: Fetch current weather, 7-day daily forecast, and 24-hour hourly forecast
             weather_url = "https://api.open-meteo.com/v1/forecast"
             weather_params = {
                 "latitude": lat,
@@ -81,12 +145,20 @@ class WeatherService:
                 "timezone": "auto",
             }
 
-            weather_response = requests.get(weather_url, params=weather_params, timeout=REQUEST_TIMEOUT)
-            
-            if weather_response.status_code != 200:
+            weather_response = None
+            for attempt in range(3):
+                weather_response = requests.get(weather_url, params=weather_params, timeout=REQUEST_TIMEOUT)
+                if weather_response.status_code == 200:
+                    break
+                if weather_response.status_code in (429, 500, 502, 503, 504) and attempt < 2:
+                    time.sleep(0.4 * (attempt + 1))
+                    continue
+
+            if not weather_response or weather_response.status_code != 200:
+                code_str = weather_response.status_code if weather_response else "No response"
                 return {
                     "success": False,
-                    "error": f"Weather API returned status code {weather_response.status_code}."
+                    "error": f"Weather API returned status code {code_str}."
                 }
 
             weather_data = weather_response.json()
@@ -189,9 +261,9 @@ class WeatherService:
             return {
                 "success": True,
                 "source": "Open-Meteo",
-                "city": resolved_city,
+                "city": city_name or "Unknown Location",
                 "country": country,
-                "region": admin1,
+                "region": region,
                 "latitude": lat,
                 "longitude": lon,
                 "temperature_c": round(temp_c, 1),
@@ -209,8 +281,8 @@ class WeatherService:
                 "timestamp": current.get("time", ""),
                 "daily_forecast": daily_forecast,
                 "hourly_forecast": hourly_forecast,
+                "matches": candidates or [],
             }
-
         except requests.exceptions.Timeout:
             return {"success": False, "error": "Request timed out. Please check your internet connection."}
         except requests.exceptions.ConnectionError:
@@ -219,6 +291,25 @@ class WeatherService:
             return {"success": False, "error": f"API request error: {str(exc)}"}
         except (KeyError, ValueError, IndexError) as parse_error:
             return {"success": False, "error": f"Failed to parse weather data: {str(parse_error)}"}
+
+    def _fetch_open_meteo(self, city_name: str) -> dict:
+        """Fetch live weather data from Open-Meteo using enhanced geocoding."""
+        candidates = self.search_locations(city_name, count=10)
+        if not candidates:
+            return {
+                "success": False,
+                "error": f"City '{city_name}' not found. Please verify the spelling."
+            }
+
+        top = candidates[0]
+        return self.get_weather_by_coords(
+            lat=top["latitude"],
+            lon=top["longitude"],
+            city_name=top["name"],
+            country=top.get("country", ""),
+            region=top.get("admin1", ""),
+            candidates=candidates
+        )
 
     def _fetch_openweather(self, city_name: str) -> dict:
         """Fetch weather data from OpenWeatherMap (requires API key)."""
